@@ -1,0 +1,13 @@
+# HTTP requests
+requests>=2.31.0
+
+# Multi-agent framework
+osbrain>=0.6.5
+
+# LLM workflow orchestration
+langgraph>=0.2.0
+
+# Additional dependencies for langgraph
+langgraph-checkpoint>=1.0.0
+langchain-core>=0.3.0
+

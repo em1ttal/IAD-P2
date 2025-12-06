@@ -4,6 +4,9 @@ requests>=2.31.0
 # Multi-agent framework
 osbrain>=0.6.5
 
+# ZeroMQ - pinned to compatible version for osbrain
+pyzmq<26.0.0,>=25.0.0
+
 # LLM workflow orchestration
 langgraph>=0.2.0
 

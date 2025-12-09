@@ -1,0 +1,181 @@
+\documentclass{article}
+\usepackage{biblatex} %Imports biblatex package
+\addbibresource{refs.bib} %Import the bibliography file
+\usepackage[utf8]{inputenc}
+
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+
+\usepackage[onehalfspacing]{setspace}
+
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{enumerate, enumitem}
+\usepackage{fancyhdr, graphicx, proof, comment, multicol}
+\usepackage[none]{hyphenat}
+\usepackage{dirtytalk}
+\binoppenalty=\maxdimen
+\relpenalty=\maxdimen
+\usepackage{microtype}
+%\usepackage{mathpazo}
+\usepackage{mdframed}
+\usepackage{parskip}
+\linespread{1.1}
+\usepackage{graphicx}
+\usepackage{subfig}
+\usepackage{mathrsfs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{minted}
+\usepackage{amssymb}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{multicol}
+\usepackage{tcolorbox}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{booktabs}
+\usepackage{diagbox}
+
+\tcbuselibrary{minted,breakable,xparse,skins}
+
+\definecolor{bg}{gray}{0.95}
+\DeclareTCBListing{mintedbox}{O{}m!O{}}{%
+  breakable=true,
+  listing engine=minted,
+  listing only,
+  minted language=#2,
+  minted style=default,
+  minted options={%
+    linenos,
+    gobble=0,
+    breaklines=true,
+    breakafter=,,
+    fontsize=\small,
+    numbersep=8pt,
+    #1},
+  boxsep=0pt,
+  left skip=0pt,
+  right skip=0pt,
+  left=25pt,
+  right=0pt,
+  top=3pt,
+  bottom=3pt,
+  arc=5pt,
+  leftrule=0pt,
+  rightrule=0pt,
+  bottomrule=2pt,
+  toprule=2pt,
+  colback=bg,
+  colframe=orange!70,
+  enhanced,
+  overlay={%
+    \begin{tcbclipinterior}
+    \fill[orange!20!white] (frame.south west) rectangle ([xshift=20pt]frame.north west);
+    \end{tcbclipinterior}},
+  #3}
+
+
+
+\title{Intel·ligència Artificial Distribuïda: Informe Practica 2}
+\author{Eshaan Mittal, Adrià Gasull}
+\date{Diciembre 2025}
+\begin{document}
+
+\maketitle
+
+\begin{center}
+    \includegraphics[width=0.7\textwidth]{images/title.png}
+\end{center}
+\newpage
+
+\tableofcontents
+
+\newpage
+
+\section{Introduction}
+
+This report presents the implementation of a multi-agent system for a Dutch Fish Auction simulation. The project explores three different approaches to agent design and coordination: a standard implementation using the \texttt{osBrain} framework, an LLM-augmented implementation where agents use Large Language Models for decision-making, and a LangGraph-based implementation for more complex agent workflows.
+
+The core scenario involves a distributed marketplace with multiple Sellers (Operators) and Buyers (Merchants). Operators conduct Dutch auctions, where the price of a fish starts high and decreases over time. Merchants, each with specific preferences and budgets, must decide when to bid to maximize their utility while competing with others. This creates a dynamic environment requiring real-time decision-making, race condition handling, and strategic planning.
+
+\section{osBrain Implementation}
+
+The first implementation utilizes the \texttt{osBrain} Python framework, which provides a flexible infrastructure for creating and connecting agents via message passing (using ZeroMQ/PyRO). This section details the architecture, design decisions, and behavior of the agents implemented in \texttt{toyAgentOsBrain.py}.
+
+\subsection[Design Decisions]{Design Decisions}
+
+\subsubsection{Agent Architecture}
+Two types of agents were defined:
+\begin{itemize}
+    \item \textbf{Operator (Seller):} Manages an inventory of fish (Hake, Sole, Tuna) with randomized starting and minimum prices. It runs an independent auction clock, broadcasting price updates and processing buy requests.
+    \item \textbf{Merchant (Buyer):} Connects to all operators simultaneously. It maintains a budget and a set of goals (Diversity, Preference Satisfaction) and makes bidding decisions based on a specific strategy.
+\end{itemize}
+
+\subsubsection{Communication Patterns}
+We employed two primary communication patterns to ensure efficient and scalable interaction:
+\begin{itemize}
+    \item \textbf{PUB-SUB (Publish-Subscribe):} Operators use a \texttt{PUB} socket to broadcast \texttt{AUCTION\_ITEM} updates and \texttt{SALE\_CONFIRMATION} messages. Merchants use \texttt{SUB} sockets to listen to these broadcasts. This allows one-to-many communication without the operator needing to know about specific merchants.
+    \item \textbf{PUSH-PULL (Pipeline):} Merchants use \texttt{PUSH} sockets to send targeted \texttt{BUY} requests to specific Operators, who receive them via a \texttt{PULL} socket. This pattern queues requests, enabling the Operator to process them sequentially and handle race conditions (first valid bid wins).
+\end{itemize}
+
+\subsubsection{Bidding Logic}
+The merchants employ a prioritized goal-oriented bidding logic:
+\begin{enumerate}
+    \item \textbf{Priority 1: Diversity (Get Missing Types):} If the merchant does not yet own a fish of the current type, it will bid aggressively. It reserves budget for other missing types and is willing to spend up to 40\% of its remaining available budget.
+    \item \textbf{Priority 2: Preference Satisfaction:} If the merchant already has the fish type but it matches its specific preference, it will bid if the price is reasonable (up to 60\% of the available budget).
+    \item \textbf{Priority 3: Opportunistic (Bargains):} If the price drops very low ($\le$ 15), the merchant will bid on any fish type to maximize value, regardless of its goals.
+\end{enumerate}
+
+\subsubsection{Race Condition Handling}
+Since multiple merchants can bid on the same item simultaneously, we implemented a robust mechanism to handle race conditions:
+\begin{enumerate}
+    \item Operators process incoming bids sequentially.
+    \item The first valid bid triggers an atomic \texttt{is\_sold} flag.
+    \item Subsequent bids for the same item are ignored.
+    \item A \texttt{SALE\_CONFIRMATION} is broadcast to ALL merchants.
+    \item Merchants receiving the confirmation update their state: the winner deducts the budget, while losers clear their pending bids and prepare for the next item.
+\end{enumerate}
+
+\subsection[Tests]{Tests}
+
+The simulation was tested with 2 Operators and 3 Merchants. Logs were generated to verify the system's behavior:
+\begin{itemize}
+    \item \texttt{setup\_*.csv}: confirmed that merchants were correctly assigned random preferences.
+    \item \texttt{log\_*.csv}: recorded the flow of the auction.
+\end{itemize}
+
+The message flow correctly handled concurrent bids, ensuring no single item was sold twice. The diversity of merchant preferences resulted in a realistic bidding pattern where different merchants competed for different items.
+
+\subsection[Summary]{Summary}
+
+The \texttt{osBrain} implementation successfully demonstrates a distributed Dutch auction. The use of asynchronous message passing creates a robust and dynamic marketplace. The separation of concerns between Operators and Merchants, along with the specific communication patterns chosen, ensures scalability and correct handling of concurrency issues.
+
+\section{LLM-Augmented Implementation}
+
+
+\subsection[Design Decisions]
+
+
+\subsection[Tests]
+
+
+\subsection[Summary]
+
+
+\section{LangGraph Implementation}
+
+
+\subsection[Design Decisions]
+
+
+\subsection[Tests]
+
+
+\subsection[Summary]
+
+
+\section{Conclusions}
+
+
+\end{document}

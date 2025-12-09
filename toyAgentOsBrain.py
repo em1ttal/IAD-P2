@@ -639,8 +639,8 @@ class Merchant(Agent):
             
             # BUDGET RESERVATION STRATEGY:
             # Reserve enough budget for remaining missing types to ensure we can
-            # still afford them later. Estimate MIN_PRICE_MIN per missing type.
-            budget_to_reserve = (types_needed - 1) * MIN_PRICE_MIN
+            # still afford them later. Estimate MIN_PRICE_MAX per missing type.
+            budget_to_reserve = (types_needed - 1) * MIN_PRICE_MAX
             affordable_price = available_budget - budget_to_reserve
             
             if price <= affordable_price:

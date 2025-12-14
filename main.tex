@@ -137,15 +137,30 @@ Since multiple merchants can bid on the same item simultaneously, we implemented
     \item Merchants receiving the confirmation update their state: the winner deducts the budget, while losers clear their pending bids and prepare for the next item.
 \end{enumerate}
 
+\subsection{Challenges and Solutions}
+
+During the development of the classical osBrain implementation, we encountered and addressed several significant technical challenges:
+
+\subsubsection{Framework Compatibility}
+A major infrastructure hurdle was the compatibility of the \texttt{osBrain} framework with the latest Python releases. We initially attempted to develop the system using Python 3.13, but this resulted in persistent instability and serialization errors within the underlying IPC (Inter-Process Communication) mechanisms.
+Investigation revealed that the library's dependencies were not fully compatible with Python 3.13's changes to threading and pickling. The solution was to revert the development environment to Python 3.12. This version provided the necessary stability for the \texttt{Pyro4} and \texttt{ZeroMQ} backends used by osBrain, ensuring reliable message delivery.
+
+\subsubsection{Simultaneous Bidding and Race Conditions}
+A behavioral challenge emerged from the deterministic nature of the merchant agents. Since all merchants run the exact same decision logic on the same local machine, their reaction times are nearly identical. In situations where a high-demand item is broadcast (e.g., a "Tuna" when multiple merchants need it for diversity), the agents would emit \texttt{BUY} requests in the exact same execution tick.
+This simultaneity necessitated the robust race condition handling described in Section 2.1.4. Without the Operator's strict sequential processing and atomic \texttt{is\_sold} flag, the system would be prone to "double spending" errors where an item is sold to multiple buyers. The implementation forces a serialization of these concurrent events, ensuring the integrity of the auction despite the lack of network latency that would naturally space out requests in a real-world distributed system.
+
+\subsubsection{Zombie Processes}
+We observed that if the simulation was interrupted (e.g., via \texttt{Ctrl+C}) or crashed, the osBrain name server and agent processes would often remain active in the background ("zombie processes"). This prevented subsequent runs from binding to the required ports. We addressed this by wrapping the entire main execution loop in a \texttt{try...finally} block that guarantees a \texttt{ns.shutdown()} call, ensuring all resources are released regardless of how the program terminates.
+
 \subsection[Tests]{Tests}
 
-The simulation was tested with 2 Operators and 3 Merchants. Logs were generated to verify the system's behavior:
-\begin{itemize}
-    \item \texttt{setup\_*.csv}: confirmed that merchants were correctly assigned random preferences.
-    \item \texttt{log\_*.csv}: recorded the flow of the auction.
-\end{itemize}
+The simulation was tested with a configuration of 2 Operators and 3 Merchants. The results from the generated CSV logs demonstrated the effectiveness of the prioritized bidding logic:
 
-The message flow correctly handled concurrent bids, ensuring no single item was sold twice. The diversity of merchant preferences resulted in a realistic bidding pattern where different merchants competed for different items.
+\begin{itemize}
+    \item \textbf{Diversity Goal}: Merchants successfully prioritized acquiring missing fish types, often bidding earlier (higher prices) for the first item of a specific type.
+    \item \textbf{Preference Satisfaction}: Once diversity was achieved, merchants shifted strategy to acquire their preferred fish type, managing their remaining budget effectively.
+    \item \textbf{Concurrent Bidding}: The logs confirmed that despite multiple merchants attempting to buy the same item in the same tick, the Operator correctly processed only the first request and rejected others, preventing inventory inconsistencies.
+\end{itemize}
 
 \subsection[Summary]{Summary}
 

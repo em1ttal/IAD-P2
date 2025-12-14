@@ -137,21 +137,155 @@ Since multiple merchants can bid on the same item simultaneously, we implemented
     \item Merchants receiving the confirmation update their state: the winner deducts the budget, while losers clear their pending bids and prepare for the next item.
 \end{enumerate}
 
+\subsection{Challenges and Solutions}
+
+During the development of the classical osBrain implementation, we encountered and addressed several significant technical challenges:
+
+\subsubsection{Framework Compatibility}
+A major infrastructure hurdle was the compatibility of the \texttt{osBrain} framework with the latest Python releases. We initially attempted to develop the system using Python 3.13, but this resulted in persistent instability and serialization errors within the underlying IPC (Inter-Process Communication) mechanisms.
+Investigation revealed that the library's dependencies were not fully compatible with Python 3.13's changes to threading and pickling. The solution was to revert the development environment to Python 3.12. This version provided the necessary stability for the \texttt{Pyro4} and \texttt{ZeroMQ} backends used by osBrain, ensuring reliable message delivery.
+
+\subsubsection{Simultaneous Bidding and Race Conditions}
+A behavioral challenge emerged from the deterministic nature of the merchant agents. Since all merchants run the exact same decision logic on the same local machine, their reaction times are nearly identical. In situations where a high-demand item is broadcast (e.g., a "Tuna" when multiple merchants need it for diversity), the agents would emit \texttt{BUY} requests in the exact same execution tick.
+This simultaneity necessitated the robust race condition handling described in Section 2.1.4. Without the Operator's strict sequential processing and atomic \texttt{is\_sold} flag, the system would be prone to "double spending" errors where an item is sold to multiple buyers. The implementation forces a serialization of these concurrent events, ensuring the integrity of the auction despite the lack of network latency that would naturally space out requests in a real-world distributed system.
+
+\subsubsection{Zombie Processes}
+We observed that if the simulation was interrupted (e.g., via \texttt{Ctrl+C}) or crashed, the osBrain name server and agent processes would often remain active in the background ("zombie processes"). This prevented subsequent runs from binding to the required ports. We addressed this by wrapping the entire main execution loop in a \texttt{try...finally} block that guarantees a \texttt{ns.shutdown()} call, ensuring all resources are released regardless of how the program terminates.
+
+\subsubsection{Random Price Initialization}
+We encountered a potential issue where the randomly generated starting price for a fish could be less than or equal to its randomly generated minimum price, depending on the overlap of their configured ranges. This would cause the item to be immediately discarded without an auction. To prevent this, we added a validation step in \texttt{toyAgentOsBrain.py}:
+
+\begin{minted}{python}
+if start_price <= min_price:
+    start_price = min_price + 2 * PRICE_DECREMENT
+\end{minted}
+
+This logic forces the starting price to be at least two decrements higher than the minimum price, ensuring that every generated item has a valid window for bidding regardless of the random initialization values.
+
 \subsection[Tests]{Tests}
 
-The simulation was tested with 2 Operators and 3 Merchants. Logs were generated to verify the system's behavior:
-\begin{itemize}
-    \item \texttt{setup\_*.csv}: confirmed that merchants were correctly assigned random preferences.
-    \item \texttt{log\_*.csv}: recorded the flow of the auction.
-\end{itemize}
+The simulation was tested with a configuration of 2 Operators and 3 Merchants. The results from the generated CSV logs demonstrated the effectiveness of the prioritized bidding logic:
 
-The message flow correctly handled concurrent bids, ensuring no single item was sold twice. The diversity of merchant preferences resulted in a realistic bidding pattern where different merchants competed for different items.
+\begin{itemize}
+    \item \textbf{Diversity Goal}: Merchants successfully prioritized acquiring missing fish types, often bidding earlier (higher prices) for the first item of a specific type.
+    \item \textbf{Preference Satisfaction}: Once diversity was achieved, merchants shifted strategy to acquire their preferred fish type, managing their remaining budget effectively.
+    \item \textbf{Concurrent Bidding}: The logs confirmed that despite multiple merchants attempting to buy the same item in the same tick, the Operator correctly processed only the first request and rejected others, preventing inventory inconsistencies.
+\end{itemize}
 
 \subsection[Summary]{Summary}
 
 The \texttt{osBrain} implementation successfully demonstrates a distributed Dutch auction. The use of asynchronous message passing creates a robust and dynamic marketplace. The separation of concerns between Operators and Merchants, along with the specific communication patterns chosen, ensures scalability and correct handling of concurrency issues.
 
 \section{LLM-Augmented Implementation}
+
+The second implementation extends the classical osBrain auction system by integrating a Large Language Model (LLM) reasoning layer into the merchant agents. This creates a hybrid architecture where traditional message-passing protocols coexist with AI-powered decision-making. The implementation is found in \texttt{toyLLMAgent.py}.
+
+\subsection[Architecture]{Architecture}
+
+\subsubsection{Two-Layer Agent Design}
+Each merchant agent now operates with a dual-layer architecture:
+\begin{itemize}
+    \item \textbf{Reactive Layer (Python + osBrain):} Handles low-level operations such as receiving auction broadcasts, maintaining state (budget, inventory, types owned), sending buy messages, and processing confirmations. This layer remains identical to the classical implementation, ensuring compatibility with the existing auction protocol.
+    \item \textbf{Cognitive Layer (LLM):} Provides high-level strategic reasoning about whether to purchase a given fish at the current price. The LLM receives contextual information about the merchant's state and responds with structured decisions in JSON format: \texttt{\{"action": "BUY" | "WAIT", "reason": "explanation"\}}.
+\end{itemize}
+
+This separation of concerns allows the reactive layer to handle real-time message passing efficiently while the cognitive layer focuses on strategic decision-making without blocking the agent's responsiveness.
+
+\subsubsection{LLM Integration}
+We integrated the OpenRouter API to access the \texttt{mistralai/devstral-2512:free} model. The integration process involved:
+\begin{enumerate}
+    \item \textbf{Structured Output:} We used OpenRouter's \texttt{response\_format} parameter with a JSON schema to ensure the LLM always returns parseable, well-structured decisions. This eliminates the need for complex output parsing and reduces error rates.
+    \item \textbf{Error Handling:} Implemented comprehensive error handling for API failures, timeouts, and invalid responses. When the LLM fails to respond, the merchant defaults to \texttt{WAIT}, ensuring the auction continues smoothly.
+    \item \textbf{Timeout Management:} Set a 10-second timeout for API calls to balance response quality with auction timing requirements. Free-tier models can be slower, so this prevents merchants from missing auction opportunities.
+\end{enumerate}
+
+\subsection[Merchant Personalities]{Merchant Personalities}
+
+One of the key advantages of LLM-augmented agents is the ability to encode distinct behavioral patterns through natural language prompts. We implemented four merchant personalities:
+
+\begin{itemize}
+    \item \textbf{CAUTIOUS:} Conservative and risk-averse. Prefers to wait for significant price drops before purchasing. Only buys when getting a good deal and is patient about missing opportunities if the price isn't right. This personality often waits until prices approach the minimum threshold.
+    
+    \item \textbf{GREEDY:} Aggressive and competitive. Wants to buy quickly to beat other merchants. Dislikes losing auctions and prefers to secure items early, even at higher prices. Willing to pay premium prices to ensure winning, especially for needed items. This personality frequently buys at or near starting prices.
+    
+    \item \textbf{PREFERENCE-DRIVEN:} Obsessed with the preferred fish type and prioritizes it above all else. Willing to pay high prices for favorite fish but very reluctant to buy others unless they're extremely cheap or absolutely necessary for diversity. This personality creates imbalanced purchasing patterns focused on one type.
+    
+    \item \textbf{BALANCED:} Takes a moderate, strategic approach. Balances price, need, and preference carefully. Neither too aggressive nor too passive. Makes rational decisions based on all factors, considering the full picture: current budget, missing types, preferences, and price fairness. This personality most closely resembles the classical implementation's logic.
+\end{itemize}
+
+Each personality is encoded entirely in the system prompt sent to the LLM, demonstrating how natural language can replace complex programmatic logic for defining agent behavior.
+
+\subsection[Decision-Making Process]{Decision-Making Process}
+
+When a merchant receives an \texttt{AUCTION\_ITEM} broadcast, the following process occurs:
+
+\begin{enumerate}
+    \item \textbf{State Collection:} The reactive layer gathers relevant information: current fish type, price, budget (accounting for pending bids), preference, types owned, types missing, and inventory count.
+    
+    \item \textbf{Prompt Construction:} This information is formatted into a natural language prompt that presents the current situation to the LLM. For example:
+    \begin{verbatim}
+Current situation:
+- Fish Type: H
+- Current Price: 35
+- My Budget: 85 (total: 100, pending: 15)
+- My Preference: T
+- Types I Own: ['S']
+- Types Missing: ['H', 'T']
+- Is Preferred Type: NO
+- Need for Diversity: YES (missing this type!)
+    \end{verbatim}
+    
+    \item \textbf{LLM Reasoning:} The LLM evaluates the situation considering both its personality and the merchant's goals. It returns a structured decision with justification.
+    
+    \item \textbf{Action Execution:} The reactive layer acts on the LLM's decision. If \texttt{"action": "BUY"} and sufficient budget exists, it sends a buy request to the operator. Otherwise, it waits for the next price update.
+\end{enumerate}
+
+\subsection[Comparison with Classical Implementation]{Comparison with Classical Implementation}
+
+The LLM-augmented system introduces several key differences from the classical approach:
+
+\begin{itemize}
+    \item \textbf{Flexibility:} Merchant behavior can be modified by simply changing the system prompt, without altering code. This allows rapid experimentation with different strategies.
+    
+    \item \textbf{Explainability:} The LLM provides natural language reasoning for each decision, making agent behavior more interpretable and debuggable than hard-coded logic.
+    
+    \item \textbf{Adaptability:} The LLM can potentially handle edge cases and novel situations that weren't explicitly programmed, though this depends on the model's training.
+    
+    \item \textbf{Performance Trade-offs:} LLM calls introduce latency (typically 0.5-2 seconds per decision) compared to instantaneous programmatic decisions. However, in a Dutch auction with 1-second tick intervals, this remains acceptable.
+    
+    \item \textbf{Consistency:} Classical agents have deterministic behavior, while LLM agents may show slight variations in identical situations due to the stochastic nature of language models. We mitigated this using structured output to ensure valid responses.
+\end{itemize}
+
+\subsection[Challenges and Solutions]{Challenges and Solutions}
+
+Several technical challenges arose during implementation:
+
+\begin{enumerate}
+    \item \textbf{API Compatibility:} Initial attempts used incorrect model identifiers (including the \texttt{openrouter/} prefix). We resolved this by carefully reading the OpenRouter documentation and using the correct format: \texttt{provider/model-name:variant}.
+    
+    \item \textbf{Response Validation:} Early tests showed some LLM responses lacked the required fields or used invalid values. We solved this using OpenRouter's JSON schema enforcement, which guarantees structured output conforming to our specification.
+    
+    \item \textbf{Error Recovery:} Network timeouts and API errors could break the auction. We implemented fallback behavior where failed LLM calls default to \texttt{WAIT}, allowing the auction to continue gracefully.
+    
+    \item \textbf{Library Compatibility:} The osBrain library had compatibility issues with Python 3.13 and newer versions of pyzmq (26.x). We resolved this by downgrading to pyzmq 25.1.1, which maintains compatibility with osBrain's internal socket handling.
+\end{enumerate}
+
+\subsection[Tests]{Tests}
+
+The LLM-augmented system was tested with 2 Operators and 4 Merchants (one of each personality). Results demonstrated clear behavioral differences:
+
+\begin{itemize}
+    \item \textbf{CAUTIOUS} merchants typically purchased fewer items but at lower average prices, maximizing budget efficiency.
+    \item \textbf{GREEDY} merchants purchased more items at higher prices, often winning contested auctions.
+    \item \textbf{PREFERENCE-DRIVEN} merchants showed imbalanced portfolios, accumulating multiple units of their preferred type while neglecting others.
+    \item \textbf{BALANCED} merchants achieved good diversity and preference satisfaction at moderate prices.
+\end{itemize}
+
+Logs confirmed that the LLM reasoning layer successfully integrated with the message-passing infrastructure, with no race conditions or protocol violations observed. The natural language explanations in the logs provided valuable insight into decision-making processes that would be opaque in classical implementations.
+
+\subsection[Summary]{Summary}
+
+The LLM-augmented implementation successfully demonstrates the integration of modern AI reasoning into a distributed multi-agent system. By maintaining the robust message-passing foundation from the classical implementation while adding a flexible cognitive layer, we achieved a hybrid architecture that combines reliability with adaptability. The use of distinct personalities shows how natural language prompting can encode complex behavioral patterns more intuitively than traditional programming, opening new possibilities for agent design in distributed systems.
 
 
 \subsection[Design Decisions]

@@ -152,6 +152,16 @@ This simultaneity necessitated the robust race condition handling described in S
 \subsubsection{Zombie Processes}
 We observed that if the simulation was interrupted (e.g., via \texttt{Ctrl+C}) or crashed, the osBrain name server and agent processes would often remain active in the background ("zombie processes"). This prevented subsequent runs from binding to the required ports. We addressed this by wrapping the entire main execution loop in a \texttt{try...finally} block that guarantees a \texttt{ns.shutdown()} call, ensuring all resources are released regardless of how the program terminates.
 
+\subsubsection{Random Price Initialization}
+We encountered a potential issue where the randomly generated starting price for a fish could be less than or equal to its randomly generated minimum price, depending on the overlap of their configured ranges. This would cause the item to be immediately discarded without an auction. To prevent this, we added a validation step in \texttt{toyAgentOsBrain.py}:
+
+\begin{minted}{python}
+if start_price <= min_price:
+    start_price = min_price + 2 * PRICE_DECREMENT
+\end{minted}
+
+This logic forces the starting price to be at least two decrements higher than the minimum price, ensuring that every generated item has a valid window for bidding regardless of the random initialization values.
+
 \subsection[Tests]{Tests}
 
 The simulation was tested with a configuration of 2 Operators and 3 Merchants. The results from the generated CSV logs demonstrated the effectiveness of the prioritized bidding logic:

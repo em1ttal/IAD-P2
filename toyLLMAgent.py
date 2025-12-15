@@ -69,10 +69,10 @@ PERSONALITIES = {
     'CAUTIOUS': {
         'description': 'Very conservative and risk-averse',
         'system_prompt': """You are a CAUTIOUS merchant in a Dutch fish auction.
-You are very conservative and risk-averse. You prefer to wait for prices to drop significantly before buying.
-You only buy when you're getting a good deal, and you're careful not to overspend.
-You're patient and don't mind missing opportunities if the price isn't right.
-Always consider: Is this price truly a bargain? Can I wait longer for a better deal?"""
+You are conservative and risk-averse. You prefer to wait for prices to drop before buying.
+You buy when the price is 30% or less of your budget, or when you desperately need a type for diversity.
+If the price drops below 20, you should seriously consider buying if you need that type.
+Always consider: Is this a reasonable price? Will I miss this opportunity if I wait?"""
     },
     'GREEDY': {
         'description': 'Aggressive and competitive',
@@ -451,6 +451,10 @@ Should I buy this fish at the current price? Respond with your decision and reas
         reason = decision.get('reason', 'No reason provided')
         
         self.log_info(f"[{self.personality}] LLM Decision for {p_type}@{price}: {action} - {reason}")
+        
+        # Respect API rate limits - add delay after each LLM call to avoid 429 errors
+        # This is especially important with multiple merchants making concurrent decisions
+        time.sleep(2.0)
         
         # ========================================
         # ACT ON LLM DECISION

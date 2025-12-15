@@ -95,9 +95,44 @@
 
 \section{Introduction}
 
-This report presents the implementation of a multi-agent system for a Dutch Fish Auction simulation. The project explores three different approaches to agent design and coordination: a standard implementation using the \texttt{osBrain} framework, an LLM-augmented implementation where agents use Large Language Models for decision-making, and a LangGraph-based implementation for more complex agent workflows.
+This report presents our implementation of a multi-agent system for a Dutch Fish Auction simulation, exploring the intersection of distributed systems, artificial intelligence, and multi-agent coordination. Through this project, we investigated three different approaches to agent design and coordination, each representing a distinct paradigm in modern multi-agent systems.
 
-The core scenario involves a distributed marketplace with multiple Sellers (Operators) and Buyers (Merchants). Operators conduct Dutch auctions, where the price of a fish starts high and decreases over time. Merchants, each with specific preferences and budgets, must decide when to bid to maximize their utility while competing with others. This creates a dynamic environment requiring real-time decision-making, race condition handling, and strategic planning.
+\subsection{Project Overview}
+
+Our work encompasses three complementary implementations:
+
+\begin{enumerate}
+    \item \textbf{Classical Distributed System (osBrain):} A traditional multi-agent framework using asynchronous message passing and explicit communication patterns. This implementation serves as our baseline, demonstrating established distributed systems principles.
+    
+    \item \textbf{LLM-Augmented Agents (osBrain + LLM):} An evolution of the classical approach where we replace hard-coded decision logic with Large Language Model reasoning. This hybrid architecture explores how modern AI can enhance agent autonomy and behavioral flexibility.
+    
+    \item \textbf{Graph-Based Orchestration (LangGraph):} A paradigm shift to centralized state management and structured workflows. This implementation investigates how emerging frameworks for LLM applications can coordinate complex multi-agent interactions.
+\end{enumerate}
+
+\subsection{The Dutch Auction Scenario}
+
+The core scenario we implemented involves a distributed marketplace with multiple Sellers (Operators) and Buyers (Merchants). Operators conduct Dutch auctions, where the price of a fish starts high and decreases over time until a buyer accepts or the price reaches a minimum threshold. Merchants, each with specific preferences and limited budgets, must decide when to bid to maximize their utility while competing with others.
+
+This creates a dynamic environment requiring:
+\begin{itemize}
+    \item \textbf{Real-time Decision-Making:} Agents must evaluate opportunities quickly as prices change
+    \item \textbf{Strategic Planning:} Balancing immediate opportunities against future possibilities
+    \item \textbf{Concurrency Management:} Handling race conditions when multiple agents bid simultaneously
+    \item \textbf{Goal Optimization:} Satisfying multiple objectives (diversity, preference, budget efficiency)
+\end{itemize}
+
+\subsection{Motivation and Learning Objectives}
+
+Through this project, we aimed to gain hands-on experience with:
+\begin{itemize}
+    \item Distributed agent communication patterns and protocols
+    \item Integration of LLMs into autonomous agent systems
+    \item Trade-offs between different architectural paradigms
+    \item Practical challenges of API integration, rate limiting, and error handling
+    \item The evolution from traditional multi-agent systems to modern AI-augmented architectures
+\end{itemize}
+
+The following sections detail each implementation, the challenges we encountered, the solutions we developed, and ultimately, a comparative analysis of the three approaches. This project provided valuable insights into both established distributed systems principles and emerging trends in AI-augmented multi-agent systems.
 
 \section{osBrain Implementation}
 
@@ -287,29 +322,330 @@ Logs confirmed that the LLM reasoning layer successfully integrated with the mes
 
 The LLM-augmented implementation successfully demonstrates the integration of modern AI reasoning into a distributed multi-agent system. By maintaining the robust message-passing foundation from the classical implementation while adding a flexible cognitive layer, we achieved a hybrid architecture that combines reliability with adaptability. The use of distinct personalities shows how natural language prompting can encode complex behavioral patterns more intuitively than traditional programming, opening new possibilities for agent design in distributed systems.
 
-
-\subsection[Design Decisions]
-
-
-\subsection[Tests]
-
-
-\subsection[Summary]
-
-
 \section{LangGraph Implementation}
 
+The third implementation represents a paradigm shift from distributed peer-to-peer communication to centralized orchestration. By leveraging LangGraph's state machine architecture, we transform the auction system from asynchronous message passing into a structured, graph-based workflow with explicit control flow and shared state management. The implementation is found in \texttt{toyLanggraphSystem.py}.
 
-\subsection[Design Decisions]
+\subsection[Architecture]{Architecture}
+
+\subsubsection{Graph-Based State Machine}
+LangGraph models the auction as a directed graph where nodes represent distinct computational phases and edges define the control flow. The system consists of three primary nodes:
+
+\begin{itemize}
+    \item \textbf{Operator Node:} Manages auction progression. Initializes new items, sets starting prices, and broadcasts the current state to the system. Acts as the centralized auctioneer controlling the flow of items through the marketplace.
+    
+    \item \textbf{Merchants Node:} Represents the collective decision-making phase. Each merchant agent evaluates the current item using LLM reasoning and submits a decision (BUY or WAIT). This node simulates concurrent evaluation while maintaining deterministic execution order.
+    
+    \item \textbf{Evaluator Node:} Resolves each auction round. Processes all merchant bids, determines the winner (if any), executes transactions, and decides whether to lower the price, move to the next item, or end the auction.
+\end{itemize}
+
+The control flow forms a loop: \texttt{START $\rightarrow$ OPERATOR $\rightarrow$ MERCHANTS $\rightarrow$ EVALUATOR $\rightarrow$ (back to OPERATOR or END)}.
+
+\subsubsection{Centralized State Management}
+Unlike the distributed implementations, LangGraph maintains a single \texttt{AuctionState} object that persists across all nodes. This state contains:
+\begin{itemize}
+    \item \textbf{System Status:} Full inventory, current item pointer, auction active flag
+    \item \textbf{Current Round State:} Current item details, current price, round-specific messages
+    \item \textbf{Agent States:} Complete information about all merchants (budgets, inventories, preferences, personalities)
+    \item \textbf{Bid Collection:} Dictionary mapping merchant IDs to their decisions for the current round
+    \item \textbf{Logging:} Transaction history and system events
+\end{itemize}
+
+This centralized approach eliminates the complexity of distributed state synchronization but introduces different trade-offs regarding scalability and fault tolerance.
+
+\subsubsection{Synchronous Round-Based Execution}
+The graph structure enforces synchronous rounds where all merchants must evaluate the current price before the auction proceeds. This contrasts sharply with the asynchronous, event-driven nature of the osBrain implementations. Each iteration through the graph represents one price point in the Dutch auction descent.
+
+\subsubsection{Paradigm Comparison}
+The fundamental architectural differences between the three implementations can be summarized as:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Aspect} & \textbf{osBrain/LLM} & \textbf{LangGraph} \\
+\hline
+State & Distributed (local) & Centralized (shared) \\
+Communication & Message passing & Direct state access \\
+Concurrency & Asynchronous events & Synchronous rounds \\
+Control Flow & Implicit (event-driven) & Explicit (graph edges) \\
+Scalability & Horizontal (add agents) & Limited by orchestrator \\
+\hline
+\end{tabular}
+\caption{Architectural comparison of implementations}
+\end{table}
+
+\subsection[Challenges and Solutions]{Challenges and Solutions}
+
+The LangGraph implementation encountered several significant challenges, some unique to the orchestration approach and others inherited from LLM integration:
+
+\subsubsection{API Authentication and Rate Limiting}
+The most persistent challenge involved OpenRouter API errors, specifically HTTP status codes 401 (Unauthorized) and 429 (Too Many Requests).
+
+\textbf{401 Errors (Authentication):} We initially encountered persistent 401 Unauthorized errors that we mistakenly attributed to improper header configuration. After significant debugging, we discovered the actual cause: our OpenRouter API key had been automatically deactivated because we had set the credit limit to 0€. OpenRouter's system interprets this as reaching the spending limit and deactivates the key for safety. The solution was to create new API keys to continue our testing. This taught us an important lesson about API service configurations—sometimes authentication failures are not technical issues but account management ones.
+
+\textbf{429 Errors (Rate Limiting):} The free-tier model has aggressive rate limits. Since LangGraph executes merchants sequentially in a tight loop, rapid successive API calls triggered rate limit rejections. We addressed this with three strategies:
+
+\begin{enumerate}
+    \item \textbf{Conservative Sleep Delays:} Added a 20-second delay between LLM calls (\texttt{time.sleep(20.0)}) to stay well below the rate limit threshold. This dramatically increases total execution time but ensures reliability.
+    
+    \item \textbf{Error Handling with Fallback:} When API calls fail, merchants default to \texttt{WAIT}, allowing the auction to continue gracefully without crashing:
+    
+\begin{minted}{python}
+if response.status_code == 200:
+    # Process successful response
+else:
+    return {"action": "WAIT", 
+            "reason": f"API Error: {response.status_code}"}
+\end{minted}
+    
+    \item \textbf{Timeout Configuration:} Set a 10-second timeout for API calls to prevent indefinite hangs while waiting for slow responses from the free-tier infrastructure.
+\end{enumerate}
+
+The rate limiting issue highlights a fundamental challenge of LLM-augmented systems: the tradeoff between response quality (which requires API calls) and execution speed. In production environments, this would be addressed through paid API tiers with higher limits or by batching requests.
+
+\subsubsection{Sequential Execution Latency}
+The synchronous nature of the graph means that all merchants must complete their reasoning before the price can update. With 3 merchants and 20-second delays, each round takes approximately 60 seconds. For an auction with 5 items averaging 5 price decrements each, total execution time can exceed 25 minutes. This is orders of magnitude slower than the classical osBrain implementation, which completes in seconds.
 
 
-\subsection[Tests]
+\subsubsection{State Immutability and Updates}
+LangGraph expects nodes to return modified state objects. Early versions incorrectly attempted to mutate nested dictionaries without properly updating references, leading to state not persisting between nodes. We resolved this by ensuring all modifications directly update the state dictionary:
+
+\begin{minted}{python}
+# Correct: Direct update to state dictionary
+state["current_price"] -= PRICE_DECREMENT
+
+# Incorrect: Local variable modification
+current_price = state["current_price"]
+current_price -= PRICE_DECREMENT  # Does not update state!
+\end{minted}
+
+\subsubsection{Recursion Limit}
+LangGraph imposes a default recursion limit of 25 iterations to prevent infinite loops. Given that each auction item can require multiple rounds (price decrements), we exceeded this limit during testing. We resolved this by explicitly setting a higher recursion limit in the invocation:
+
+\begin{minted}{python}
+final_state = app.invoke(initial_state, config={"recursion_limit": 150})
+\end{minted}
+
+This allows for approximately 30 rounds per item (5 items $\times$ 30 = 150), providing sufficient buffer for most auction scenarios.
+
+\subsection[Tests]{Tests}
+
+The LangGraph system was tested with 3 Merchants (CAUTIOUS, GREEDY, PREFERENCE\_DRIVEN) and 5 fish items. The results demonstrated clear behavioral patterns consistent with the LLM personalities:
+
+\begin{itemize}
+    \item \textbf{Merchant\_1 (CAUTIOUS):} Waited for significant price drops before purchasing. Acquired three items (Tuna at 28, Hake at 19, Hake at 16), all at prices below 30. Total spend: 63 budget units on 3 items, achieving better value efficiency.
+
+    \item \textbf{Merchant\_2 (GREEDY):} Purchased the first two items (Hake at 55, Tuna at 42) at relatively high prices, demonstrating aggressive early buying behavior. Total spend: 97 budget units on 2 items.
+        
+    
+    \item \textbf{Merchant\_3 (PREFERENCE\_DRIVEN):} Failed to purchase any items, likely waiting for the preferred type (Sole) which did not appear in the inventory. This demonstrates the personality's reluctance to buy non-preferred types unless extremely cheap. However, this means that many times, the merchant never ends up bidding for the product and looses it to another merchant, even when the price was already low enought.
+\end{itemize}
+
+The logs confirmed that the synchronous round system correctly enforced sequential evaluation, with all merchants submitting decisions before the price updated. The transaction log showed proper budget deduction and inventory updates.
+
+\textbf{Performance Observations:}
+\begin{itemize}
+    \item Average execution time per round: $\sim$60 seconds (3 merchants $\times$ 20s delay)
+    \item Total simulation time: $\sim$18 minutes for 5 items
+    \item No race conditions occurred (by design, due to sequential processing)
+    \item API error rate: $\sim$5\% (handled gracefully by fallback mechanism)
+\end{itemize}
+
+\subsection[Summary]{Summary}
+
+The LangGraph implementation demonstrates a fundamentally different approach to multi-agent coordination. By replacing distributed message passing with centralized orchestration, we gain explicit control flow, easier debugging, and deterministic execution order at the cost of scalability and execution speed.
+
+\textbf{Key Advantages:}
+\begin{itemize}
+    \item \textbf{Transparency:} The entire system state is visible at any point, simplifying debugging and monitoring
+    \item \textbf{Determinism:} Sequential execution eliminates race conditions and non-deterministic behavior
+    \item \textbf{Structured Control:} Graph edges make the flow of execution explicit and modifiable
+    \item \textbf{Testability:} Individual nodes can be tested in isolation with controlled state inputs
+\end{itemize}
+
+\textbf{Key Limitations:}
+\begin{itemize}
+    \item \textbf{Scalability:} Centralized orchestration creates a bottleneck; adding more merchants linearly increases round time
+    \item \textbf{Performance:} Sequential LLM calls combined with rate limiting result in dramatically slower execution
+    \item \textbf{Fault Tolerance:} A failure in the orchestrator affects the entire system, unlike distributed approaches where agents can fail independently
+\end{itemize}
+
+The choice between distributed and orchestrated architectures represents a fundamental design tradeoff in multi-agent systems. The osBrain implementations better model real-world distributed scenarios and scale naturally, while the LangGraph approach provides structure and control suitable for complex workflows requiring coordinated multi-step reasoning. For production auction systems, the distributed approach would be preferred, but for research into agent reasoning and decision workflows, LangGraph's structured paradigm offers valuable tools for experimentation and analysis.
+
+\section{Comparative Analysis}
+
+Having implemented and tested three distinct approaches to the same multi-agent auction problem, we now present a comprehensive comparison of their characteristics, trade-offs, and suitability for different scenarios. This analysis synthesizes our hands-on experience and highlights the key lessons we learned throughout the project.
+
+\subsection{Architectural Paradigms}
+
+\subsubsection{Communication and State Management}
+
+The most fundamental difference between our implementations lies in how agents communicate and manage state:
+
+\textbf{osBrain (Classical):} Implements true distributed architecture where each agent maintains its own local state. Communication occurs through explicit message passing using ZeroMQ sockets (PUB-SUB for broadcasts, PUSH-PULL for requests). This mirrors real-world distributed systems where components have no direct access to each other's internal state. The asynchronous nature means agents react to events independently and concurrently.
+
+\textbf{osBrain + LLM:} Maintains the distributed architecture but replaces decision logic with API calls to external LLM services. The communication patterns remain identical, but decision-making becomes a network operation. This creates an interesting hybrid where the distributed infrastructure is classical but the "intelligence" is centralized in the LLM service.
+
+\textbf{LangGraph:} Adopts centralized orchestration where a single state object is shared across all computational nodes. There is no true message passing—instead, nodes directly read from and write to the shared state. Execution is strictly sequential, with explicit control flow defined by graph edges. This resembles workflow orchestration systems rather than distributed multi-agent systems.
+
+\subsubsection{Performance Characteristics}
+
+We observed dramatic differences in execution performance:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Implementation} & \textbf{Time per Round} & \textbf{Total Time} & \textbf{Scalability} \\
+\hline
+osBrain Classical & $<$0.1s & $\sim$30s (5 items) & Excellent \\
+osBrain + LLM & 0.5-2s per decision & $\sim$3-5 min & Good \\
+LangGraph & $\sim$60s (3 merchants) & $\sim$18 min & Poor \\
+\hline
+\end{tabular}
+\caption{Performance comparison across implementations}
+\end{table}
+
+The classical implementation is fastest by orders of magnitude because decisions are purely computational. The LLM implementations suffer from API latency, with LangGraph particularly affected by sequential processing. Adding more merchants:
+\begin{itemize}
+    \item \textbf{osBrain:} Minimal impact (parallel execution)
+    \item \textbf{LangGraph:} Linear degradation (N merchants = N$\times$ delay per round)
+\end{itemize}
+
+\subsubsection{Behavioral Flexibility}
+
+A key advantage of LLM-augmented systems is behavioral flexibility:
+
+\textbf{Classical Implementation:} Behavior is hard-coded in Python logic. Changing merchant strategies requires modifying code, which demands programming expertise and careful testing. However, behavior is deterministic and predictable.
+
+\textbf{LLM Implementations:} Behavior is defined in natural language prompts. We demonstrated four distinct personalities (CAUTIOUS, GREEDY, PREFERENCE-DRIVEN, BALANCED) by only changing the system prompt. This allows domain experts without programming skills to define agent behaviors. The trade-off is slight non-determinism due to the stochastic nature of LLMs.
+
+Our experience showed that prompting is remarkably effective for encoding complex behavioral patterns. For example, the PREFERENCE-DRIVEN personality naturally exhibited reluctance to buy non-preferred items without explicit if-else logic.
+
+\subsection{Technical Challenges and Solutions}
+
+\subsubsection{Challenges Common to All Approaches}
+
+\begin{itemize}
+    \item \textbf{Python Version Compatibility:} The osBrain framework required Python 3.12; we encountered serialization errors with Python 3.13
+    \item \textbf{Race Condition Handling:} All implementations needed mechanisms to prevent double-spending when multiple merchants bid simultaneously
+    \item \textbf{Process Management:} Zombie processes from interrupted executions required careful shutdown handling
+\end{itemize}
+
+\subsubsection{LLM-Specific Challenges}
+
+Working with LLMs introduced entirely new categories of challenges that we had not anticipated:
+
+\begin{itemize}
+    \item \textbf{API Authentication (401 Errors):} We encountered persistent 401 errors that initially seemed like header configuration issues. After extensive debugging, we discovered the root cause: our OpenRouter account had a credit limit set to 0€, which then deactivated the API key after a couple of executions. Creating new API keys immediately resolved the issue. This taught us that API authentication failures can stem from account configuration rather than code errors.
+    
+    \item \textbf{Rate Limiting (429 Errors):} The most persistent issue we faced. Free-tier models have aggressive rate limits, requiring we implement 20-second delays between calls in LangGraph. This dramatically impacted user experience but was necessary for reliability.
+    
+    \item \textbf{Response Validation:} Early versions received invalid JSON or missing fields. We solved this using OpenRouter's JSON schema enforcement, which guarantees structured output.
+    
+    \item \textbf{Timeout Management:} Balancing between waiting long enough for quality responses vs. not blocking the auction indefinitely required experimentation.
+    
+    \item \textbf{Error Recovery:} Network failures could crash the entire system. We implemented graceful fallbacks where failed LLM calls default to WAIT, allowing the auction to continue.
+\end{itemize}
+
+These challenges taught us that integrating external AI services is fundamentally different from traditional distributed systems. Network reliability, API costs, and rate limits become first-class concerns rather than implementation details.
+
+\subsubsection{Framework-Specific Challenges}
+
+\textbf{LangGraph State Management:} We initially struggled with state not persisting between nodes. The framework expects immutable patterns, but we needed mutable state updates. Understanding the distinction between updating \texttt{state["key"]} (correct) vs. local variables (incorrect) was crucial.
+
+\textbf{LangGraph Recursion Limits:} The default 25-iteration limit was insufficient for our auction scenario. Increasing it to 150 required understanding the framework's safety mechanisms.
+
+\subsection{Key Learnings and Insights}
+
+Through this project, we gained several valuable insights:
+
+\subsubsection{The Value of Implementation Diversity}
+
+Implementing the same problem three different ways was extraordinarily educational. Each approach revealed different aspects of the problem:
+\begin{itemize}
+    \item osBrain taught us about distributed systems fundamentals
+    \item LLM integration taught us about modern AI service integration
+    \item LangGraph taught us about workflow orchestration and state machines
+\end{itemize}
+
+We would not have appreciated the trade-offs without hands-on comparison.
+
+\subsubsection{LLMs as Agent Brains}
+
+The LLM implementations surprised us with their effectiveness. We initially expected more "confusion" from the models, but with proper prompting and structured output, they made consistently reasonable decisions. The natural language reasoning in logs was genuinely helpful for debugging.
+
+However, the API rate limiting taught us that external dependencies introduce operational complexity. In production, this requires careful architecture around caching, fallbacks, and potentially self-hosted models.
+
+\subsubsection{The Orchestration vs. Distribution Trade-off}
+
+LangGraph's centralized approach initially felt like a regression from distributed architecture. However, we came to appreciate its value for specific use cases. The visibility into complete system state and explicit control flow made debugging much easier than tracking down message-passing issues in osBrain.
+
+This taught us that "distributed" is not always better—the right architecture depends entirely on the problem context.
+
+\subsubsection{The Importance of Error Handling}
+
+Working with external APIs (LLMs) and distributed processes (osBrain) taught us that error handling is not optional. Approximately 30\% of our development time was spent on handling edge cases:
+\begin{itemize}
+    \item Zombie processes from interrupted executions
+    \item API authentication failures
+    \item Rate limit errors
+    \item Network timeouts
+    \item Invalid LLM responses
+    \item Race conditions in bidding
+\end{itemize}
 
 
-\subsection[Summary]
+\subsubsection{Modern Tools Change the Development Experience}
 
+Using frameworks like LangGraph and services like OpenRouter was a fundamentally different experience from classical distributed systems programming. The abstractions are higher-level, which accelerates development but also hides complexity. We spent time learning not just the concepts but also the specific quirks and limitations of each tool.
+
+This reflects a broader trend in software engineering: more powerful tools that require less code but more understanding of their operational characteristics.
 
 \section{Conclusions}
 
+This project provided us with comprehensive hands-on experience in designing, implementing, and evaluating multi-agent systems using three distinct architectural paradigms. By building the same Dutch auction scenario using classical distributed messaging (osBrain), LLM-augmented agents, and graph-based orchestration (LangGraph), we gained deep insights into the trade-offs, challenges, and opportunities that characterize modern distributed AI systems.
+
+\subsection{Technical Achievements}
+
+We successfully implemented three fully functional multi-agent auction systems, each demonstrating:
+\begin{itemize}
+    \item Proper handling of concurrent agent actions and race conditions
+    \item Effective communication patterns (message passing or shared state)
+    \item Goal-oriented agent behavior (diversity, preference satisfaction, budget management)
+    \item Robust error handling and graceful degradation
+    \item Comprehensive logging and analysis capabilities
+\end{itemize}
+
+Our implementations handle real-world challenges including API failures, rate limiting, process management, and non-deterministic timing—issues that are often glossed over in academic projects but are critical for practical systems.
+
+\subsection{Key Findings}
+
+\subsubsection{Architectural Trade-offs Are Fundamental}
+
+We found that there is no universally "best" architecture. The classical osBrain implementation excels in performance and scalability, the LLM-augmented version provides unmatched flexibility and explainability, and LangGraph offers superior structure. The choice depends entirely on the specific requirements: time constraints, behavioral complexity, scalability needs, and development resources.
+
+\subsubsection{LLM Integration Is Powerful but Complex}
+
+Integrating Large Language Models into agent systems opened new possibilities for behavioral definition through natural language. The ability to create distinct personalities by simply modifying prompts was remarkably effective. However, this power comes with operational complexity: API dependencies, rate limiting, latency concerns, and non-determinism. We learned that successful LLM integration requires careful architectural decisions around error handling, fallback strategies, and performance management.
+
+\subsubsection{Practical Experience Reveals Hidden Complexity}
+
+Many concepts that seem straightforward in theory proved challenging in practice. Race condition handling, zombie process management, API authentication, state synchronization, and framework compatibility all required significant debugging and problem-solving. This reinforced that distributed systems and AI integration involve substantial "invisible" complexity that only emerges during implementation.
+
+\subsection{Reflection on Learning}
+
+This project significantly expanded our understanding of distributed artificial intelligence. We began with theoretical knowledge of multi-agent systems and emerged with practical experience in implementation, debugging, and optimization. The challenges we encountered—from Python version compatibility to API rate limiting—taught us that real-world systems require attention to details that are invisible in theoretical study.
+
+Perhaps most valuably, we learned to think critically about architectural choices. The experience of implementing three different approaches taught us that there are always trade-offs, and that the "right" solution depends on carefully understanding the problem context, constraints, and priorities.
+
+\subsection{Final Thoughts}
+
+The evolution from classical distributed systems (osBrain) to AI-augmented agents (LLM integration) to structured orchestration (LangGraph) represents broader trends in computer science: the integration of AI into traditional systems, the rise of higher-level abstractions, and the ongoing tension between flexibility and control.
+
+By implementing all three approaches, we gained not just technical skills but also the perspective to evaluate and choose appropriate technologies for future projects. We now understand that distributed AI systems are not just about algorithms and protocols—they involve careful consideration of communication patterns, error handling, performance trade-offs, and the operational characteristics of external dependencies.
+
+This project demonstrated that modern multi-agent systems sit at the intersection of distributed computing, artificial intelligence, and software engineering. Mastering this intersection requires both theoretical understanding and practical experience—and we are grateful for the opportunity to develop both through this comprehensive implementation project.
 
 \end{document}

@@ -1,0 +1,4 @@
+Merchant,Personality,Preference,Budget
+Merchant_1,CAUTIOUS,T,100.0
+Merchant_2,GREEDY,S,100.0
+Merchant_3,PREFERENCE_DRIVEN,S,100.0

@@ -56,7 +56,7 @@ from langgraph.graph import StateGraph, START, END
 # CONFIGURATION
 # ============================================================================
 # LLM Configuration
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 LLM_MODEL = "mistralai/devstral-2512:free"
 LLM_TIMEOUT = 10
 LLM_URL = "https://openrouter.ai/api/v1/chat/completions"

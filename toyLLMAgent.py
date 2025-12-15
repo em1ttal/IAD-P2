@@ -30,6 +30,10 @@ import requests
 from datetime import datetime
 from osbrain import run_agent, run_nameserver, Agent
 import osbrain
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ============================================================================
 # SYSTEM CONFIGURATION
@@ -39,12 +43,20 @@ osbrain.config['SERIALIZER'] = 'json'
 # ============================================================================
 # LLM CONFIGURATION
 # ============================================================================
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    raise ValueError(
+        "OPENROUTER_API_KEY not found in environment variables.\n"
+        "Please create a .env file with your API key.\n"
+        "You can copy env.example to .env and add your key.\n"
+        "Get your key from: https://openrouter.ai/keys"
+    )
+
 # Valid free models on OpenRouter (remove 'openrouter/' prefix):
 # - "mistralai/devstral-2512:free"
 # - "qwen/qwen-2.5-7b-instruct:free"
 # - "meta-llama/llama-3.2-3b-instruct:free"
-LLM_MODEL = "mistralai/devstral-2512:free"
+LLM_MODEL = os.getenv("LLM_MODEL", "mistralai/devstral-2512:free")
 LLM_TIMEOUT = 10  # seconds (increased for free models)
 
 # ============================================================================

@@ -51,13 +51,25 @@ import requests
 from datetime import datetime
 from typing import TypedDict, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, START, END
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 # LLM Configuration
-OPENROUTER_API_KEY = "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"
-LLM_MODEL = "mistralai/devstral-2512:free"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    raise ValueError(
+        "OPENROUTER_API_KEY not found in environment variables.\n"
+        "Please create a .env file with your API key.\n"
+        "You can copy env.example to .env and add your key.\n"
+        "Get your key from: https://openrouter.ai/keys"
+    )
+
+LLM_MODEL = os.getenv("LLM_MODEL", "mistralai/devstral-2512:free")
 LLM_TIMEOUT = 10
 LLM_URL = "https://openrouter.ai/api/v1/chat/completions"
 
